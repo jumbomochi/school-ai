@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Facilitator Dashboard</title>
+  <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>Facilitator Dashboard</h1>
+      <p class="subtitle">Live view of all tables</p>
+    </div>
+    <div class="header-right">
+      <div class="stats">
+        <span class="stat"><span class="dot done"></span> Done: <span id="count-done">0</span></span>
+        <span class="stat"><span class="dot building"></span> Building: <span id="count-building">0</span></span>
+        <span class="stat">Active: <span id="count-active">0</span> / <span id="count-total">0</span></span>
+      </div>
+      <button id="reset-all-btn" class="reset-btn">Reset All</button>
+    </div>
+  </header>
+  <main id="grid"></main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <button id="modal-close" class="modal-close">&times;</button>
+      <iframe id="modal-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
