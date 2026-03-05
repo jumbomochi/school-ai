@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Demo</title>
+  <link rel="stylesheet" href="/css/participant.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <span class="table-badge" id="table-badge">Table ?</span>
+      <span class="app-title">Claude Code Demo</span>
+    </div>
+    <div class="header-right">
+      <button class="step-btn active" data-step="create">1. Create</button>
+      <button class="step-btn" data-step="customize">2. Customize</button>
+      <button class="step-btn" data-step="go-wild">3. Go Wild</button>
+    </div>
+  </header>
+  <main>
+    <div class="left-panel">
+      <div class="prompt-section">
+        <textarea id="prompt-input" placeholder="Describe the website you want to build..."></textarea>
+        <button id="send-btn" class="send-btn">Send to Claude</button>
+      </div>
+      <div class="code-section">
+        <div class="code-header">
+          <span id="char-count">0 characters generated</span>
+          <button id="toggle-code">Hide</button>
+        </div>
+        <pre id="code-display"><code class="language-html"></code></pre>
+      </div>
+    </div>
+    <div class="right-panel">
+      <div class="preview-container">
+        <iframe id="preview-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+        <div id="building-overlay" class="overlay hidden">
+          <div class="spinner"></div>
+          <p>Building...</p>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+  <script src="/js/participant.js"></script>
+</body>
+</html>
