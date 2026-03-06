@@ -85,12 +85,34 @@ io.on('connection', (socket) => {
   socket.on('reset-table', (data) => {
     handleReset(data);
   });
+
+  socket.on('set-tables', (data) => {
+    const count = parseInt(data.count);
+    if (count >= 1 && count <= 50) {
+      setMaxTables(count);
+    }
+  });
 });
 
-// --- CLI Process Management ---
-const { spawn } = require('child_process');
+// --- Ollama LLM Integration ---
+const activeRequests = {};
 
-function handlePromptSubmission({ table, prompt, step }) {
+function extractHtml(text) {
+  // Try to extract HTML from markdown code fences first
+  const fenceMatch = text.match(/```html?\s*\n([\s\S]*?)```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  // Try to find raw HTML
+  const htmlMatch = text.match(/(<!DOCTYPE html[\s\S]*<\/html>)/i);
+  if (htmlMatch) return htmlMatch[1].trim();
+
+  // If it starts with < assume it's all HTML
+  if (text.trim().startsWith('<')) return text.trim();
+
+  return null;
+}
+
+async function handlePromptSubmission({ table, prompt, step }) {
   const id = parseInt(table);
   if (!id || id < 1 || id > config.maxTables) return;
 
@@ -100,70 +122,107 @@ function handlePromptSubmission({ table, prompt, step }) {
   }
 
   const tableDir = path.join(__dirname, 'tables', `table-${id}`);
-  const claudeMdPath = path.join(tableDir, 'CLAUDE.md');
+  const htmlPath = path.join(tableDir, 'index.html');
   const stepKey = step || 'create';
   const systemPrompt = config.systemPrompts[stepKey] || config.systemPrompts.create;
 
-  // Write per-table CLAUDE.md
-  const claudeMdContent = `# Table ${id}\n\nYou are building a website for Table ${id}.\nCurrent step: ${stepKey}\nWrite all output to index.html in this directory.\nKeep everything in a single HTML file (inline CSS and JS).\n`;
-  fs.writeFileSync(claudeMdPath, claudeMdContent);
+  // For customize/go-wild, include existing HTML as context
+  let userPrompt = prompt;
+  if (stepKey !== 'create' && fs.existsSync(htmlPath)) {
+    const existingHtml = fs.readFileSync(htmlPath, 'utf-8');
+    userPrompt = `Here is the current website HTML:\n\n${existingHtml}\n\nUser request: ${prompt}`;
+  }
 
   // Update state
   tableState[id].status = 'building';
   tableState[id].timestamp = Date.now();
   io.emit('status-update', { table: id, status: 'building' });
 
-  // Spawn Claude Code CLI
-  const args = [
-    '--print',
-    '--output-format', 'text',
-    '--system-prompt', systemPrompt,
-    '--allowedTools', config.allowedTools,
-    prompt
-  ];
+  // Create an AbortController for timeout/cancel
+  const controller = new AbortController();
+  activeRequests[id] = controller;
 
-  const proc = spawn('claude', args, {
-    cwd: tableDir,
-    env: { ...process.env },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  tableState[id].process = proc;
-  let output = '';
-
-  proc.stdout.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-
-  proc.stderr.on('data', (chunk) => {
-    console.error(`[Table ${id}] stderr: ${chunk}`);
-  });
-
-  proc.on('close', (code) => {
-    tableState[id].process = null;
-    if (code === 0) {
-      tableState[id].status = 'done';
-      io.emit('status-update', { table: id, status: 'done' });
-      io.emit('code-update', { table: id, code: output });
-      triggerScreenshot(id);
-    } else {
-      tableState[id].status = 'error';
-      io.emit('status-update', { table: id, status: 'error' });
-    }
-    tableState[id].timestamp = Date.now();
-  });
-
-  // Timeout
   const timeout = setTimeout(() => {
-    if (tableState[id].process) {
-      proc.kill('SIGTERM');
-      tableState[id].status = 'error';
-      tableState[id].process = null;
-      io.emit('status-update', { table: id, status: 'error', message: 'Timeout' });
-    }
-  }, config.cliTimeout);
+    controller.abort();
+  }, config.requestTimeout);
 
-  proc.on('close', () => clearTimeout(timeout));
+  try {
+    const response = await fetch(`${config.ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: config.ollamaModel,
+        prompt: userPrompt,
+        system: systemPrompt,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      clearTimeout(timeout);
+      throw new Error(`Ollama returned ${response.status}: ${await response.text()}`);
+    }
+
+    // Stream NDJSON response
+    let fullOutput = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const chunk = JSON.parse(line);
+          if (chunk.response) {
+            fullOutput += chunk.response;
+            // Stream code chunk to participant
+            io.emit('code-stream', { table: id, chunk: chunk.response, full: fullOutput });
+          }
+        } catch (e) {
+          // Skip malformed JSON lines
+        }
+      }
+    }
+
+    clearTimeout(timeout);
+    delete activeRequests[id];
+
+    const html = extractHtml(fullOutput) || fullOutput;
+
+    // Write HTML to file
+    fs.writeFileSync(htmlPath, html);
+
+    tableState[id].status = 'done';
+    tableState[id].timestamp = Date.now();
+    io.emit('status-update', { table: id, status: 'done' });
+    io.emit('code-update', { table: id, code: html });
+    triggerScreenshot(id);
+
+    console.log(`[Table ${id}] Done (${html.length} chars)`);
+  } catch (err) {
+    clearTimeout(timeout);
+    delete activeRequests[id];
+
+    tableState[id].status = 'error';
+    tableState[id].timestamp = Date.now();
+
+    if (err.name === 'AbortError') {
+      console.error(`[Table ${id}] Timeout after ${config.requestTimeout}ms`);
+      io.emit('status-update', { table: id, status: 'error', message: 'Timeout' });
+    } else {
+      console.error(`[Table ${id}] Error:`, err.message);
+      io.emit('status-update', { table: id, status: 'error', message: err.message });
+    }
+  }
 }
 
 function handleReset(data) {
@@ -177,9 +236,10 @@ function handleReset(data) {
 }
 
 function resetTable(id) {
-  if (tableState[id]?.process) {
-    tableState[id].process.kill('SIGTERM');
-    tableState[id].process = null;
+  // Abort active request
+  if (activeRequests[id]) {
+    activeRequests[id].abort();
+    delete activeRequests[id];
   }
 
   const tableDir = path.join(__dirname, 'tables', `table-${id}`);
@@ -190,6 +250,39 @@ function resetTable(id) {
 
   tableState[id] = { status: 'idle', process: null, timestamp: Date.now() };
   io.emit('status-update', { table: id, status: 'idle' });
+}
+
+function setMaxTables(count) {
+  const oldMax = config.maxTables;
+  config.maxTables = count;
+
+  // Add new tables
+  for (let i = oldMax + 1; i <= count; i++) {
+    const dir = path.join(__dirname, 'tables', `table-${i}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const htmlPath = path.join(dir, 'index.html');
+    const hasFile = fs.existsSync(htmlPath) && fs.statSync(htmlPath).size > 0;
+    tableState[i] = { status: hasFile ? 'done' : 'idle', process: null, timestamp: Date.now() };
+  }
+
+  // Clean up removed tables (reset them)
+  for (let i = count + 1; i <= oldMax; i++) {
+    resetTable(i);
+    delete tableState[i];
+  }
+
+  // Re-register static routes for new tables
+  for (let i = oldMax + 1; i <= count; i++) {
+    app.use(`/preview/${i}`, express.static(path.join(__dirname, 'tables', `table-${i}`)));
+  }
+
+  // Broadcast new state to all clients
+  const states = {};
+  for (const [id, state] of Object.entries(tableState)) {
+    states[id] = { status: state.status, timestamp: state.timestamp };
+  }
+  io.emit('state-sync', { tables: states, maxTables: config.maxTables });
+  console.log(`[Config] maxTables changed: ${oldMax} -> ${count}`);
 }
 
 // --- Screenshots (Puppeteer) ---
@@ -256,8 +349,8 @@ start().catch(console.error);
 // Cleanup on exit
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');
-  for (const state of Object.values(tableState)) {
-    if (state.process) state.process.kill('SIGTERM');
+  for (const controller of Object.values(activeRequests)) {
+    controller.abort();
   }
   if (browser) await browser.close();
   process.exit(0);

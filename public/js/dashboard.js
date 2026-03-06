@@ -8,6 +8,14 @@
 
   let maxTables = 25;
   let tables = {};
+  const tableCountInput = document.getElementById('table-count');
+  const setTablesBtn = document.getElementById('set-tables-btn');
+
+  function autoGridColumns() {
+    // Pick columns: aim for 5, but adjust for small counts
+    const cols = maxTables <= 4 ? maxTables : maxTables <= 9 ? Math.min(maxTables, 5) : 5;
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  }
 
   function createCard(id) {
     const card = document.createElement('div');
@@ -42,6 +50,7 @@
     for (let i = 1; i <= maxTables; i++) {
       grid.appendChild(createCard(i));
     }
+    autoGridColumns();
   }
 
   function updateCard(id, status) {
@@ -80,8 +89,21 @@
     document.getElementById('count-total').textContent = maxTables;
   }
 
+  // Set table count
+  setTablesBtn.addEventListener('click', () => {
+    const count = parseInt(tableCountInput.value);
+    if (count >= 1 && count <= 50) {
+      socket.emit('set-tables', { count });
+    }
+  });
+
+  tableCountInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') setTablesBtn.click();
+  });
+
   socket.on('state-sync', (data) => {
     maxTables = data.maxTables;
+    tableCountInput.value = maxTables;
     tables = data.tables;
     renderGrid();
     for (const [id, state] of Object.entries(tables)) {

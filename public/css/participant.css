@@ -193,3 +193,9 @@ main {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.overlay-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: -8px;
+}

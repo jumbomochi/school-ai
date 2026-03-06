@@ -61,12 +61,47 @@ header {
 
 .reset-btn:hover { border-color: var(--text-primary); }
 
+.table-count-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.table-count-control label { color: var(--text-secondary); }
+
+.table-count-control input {
+  width: 60px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.set-tables-btn {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.set-tables-btn:hover { border-color: var(--text-primary); }
+
 main {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
   gap: 20px;
   padding: 24px 30px;
 }
+
+@media (max-width: 1200px) { main { grid-template-columns: repeat(4, 1fr) !important; } }
+@media (max-width: 900px) { main { grid-template-columns: repeat(3, 1fr) !important; } }
+@media (max-width: 600px) { main { grid-template-columns: repeat(2, 1fr) !important; } }
 
 .table-card {
   background: var(--bg-card);
@@ -177,7 +212,3 @@ main {
 }
 
 #modal-frame { width: 100%; height: 100%; border: none; }
-
-@media (max-width: 1200px) { main { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 900px) { main { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 600px) { main { grid-template-columns: repeat(2, 1fr); } }
